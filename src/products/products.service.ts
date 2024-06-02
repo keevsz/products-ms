@@ -1,8 +1,9 @@
-import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PrismaClient } from '@prisma/client';
 import { PaginationDto } from 'src/common';
+import { RpcException } from '@nestjs/microservices';
 
 @Injectable()
 export class ProductsService extends PrismaClient implements OnModuleInit {
@@ -23,7 +24,9 @@ export class ProductsService extends PrismaClient implements OnModuleInit {
   async findAll(paginationDto: PaginationDto) {
     const { limit, page } = paginationDto;
 
-    const totalRegisters = await this.products.count({ where: { available: true } });
+    const totalRegisters = await this.products.count({
+      where: { available: true },
+    });
     const lastPage = Math.ceil(totalRegisters / limit);
     const data = await this.products.findMany({
       skip: (page - 1) * limit,
@@ -46,7 +49,11 @@ export class ProductsService extends PrismaClient implements OnModuleInit {
       where: { id, available: true },
     });
 
-    if (!data) throw new NotFoundException('Product not found');
+    if (!data)
+      throw new RpcException({
+        message: 'Product not found',
+        status: HttpStatus.BAD_REQUEST,
+      });
 
     return { data };
   }
@@ -69,7 +76,24 @@ export class ProductsService extends PrismaClient implements OnModuleInit {
     const data = await this.products.update({
       where: { id },
       data: { available: false },
-    })
+    });
     return { data };
+  }
+
+  async validateProducts(ids: number[]) {
+    ids = Array.from(new Set(ids));
+
+    const products = await this.products.findMany({
+      where: { id: { in: ids } },
+    });
+
+    if (products.length !== ids.length) {
+      throw new RpcException({
+        message: 'Some products are not found',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    }
+
+    return products;
   }
 }
